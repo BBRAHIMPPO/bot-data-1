@@ -1,3 +1,4 @@
 pyTelegramBotAPI
-instagrapi
+beautifulsoup4
+requests
 flask
