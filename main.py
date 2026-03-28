@@ -1,71 +1,75 @@
 import telebot
-import sqlite3
+from instagrapi import Client
+import re
 import time
-import os
 from flask import Flask
 from threading import Thread
 
-# البيانات الخاصة بك
-TOKEN = "7225070696:AAEBSquEmyDCzz0o65GoVPHIG2Xk5qBf_Lg"
-SECRET_CODE = "7779900009"
-ADMIN_ID = 5077384676 
-
-bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
+# --- إعدادات السيرفر الوهمي للبقاء حياً ---
+app = Flask('')
 
 @app.route('/')
-def index():
-    return "Bot is Alive!"
+def home():
+    return "Bot is running!"
 
-# قاعدة البيانات
-def get_db_connection():
-    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
-    return conn
+def run():
+    app.run(host='0.0.0.0', port=8080)
 
-conn = get_db_connection()
-cursor = conn.cursor()
-cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, username TEXT)')
-conn.commit()
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+# --- إعدادات البوت ---
+TOKEN = '7707660693:AAG98DsquCzScvjTkt-6ezSVHOCd9Wmz6nE'
+bot = telebot.TeleBot(TOKEN)
+SECRET_CODE = "666"
+user_data = {}
+cl = Client()
+
+def scrape_threads_links(chat_id):
+    bot.send_message(chat_id, "🔍 جاري الفحص... يرجى الانتظار.")
+    try:
+        cl.login(user_data[chat_id]['username'], user_data[chat_id]['password'])
+        keywords = ["fixed matches", "correct score", "t.me/"]
+        found_links = set()
+        for word in keywords:
+            posts = cl.fbsearch_threads(word)
+            for post in posts:
+                text = post.caption_text if post.caption_text else ""
+                links = re.findall(r't\.me/[\w\d_]+', text)
+                for l in links:
+                    full_link = f"https://{l}"
+                    if full_link not in found_links:
+                        bot.send_message(chat_id, f"✅ قناة جديدة:\n{full_link}")
+                        found_links.add(full_link)
+        if not found_links:
+            bot.send_message(chat_id, "📭 لا توجد روابط جديدة.")
+    except Exception as e:
+        bot.send_message(chat_id, f"❌ خطأ: {e}")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    user_id = message.from_user.id
-    name = message.from_user.first_name
-    username = message.from_user.username or "لا يوجد"
-    
-    cursor.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
-    if not cursor.fetchone():
-        cursor.execute("INSERT INTO users VALUES (?, ?, ?)", (user_id, name, username))
-        conn.commit()
-        
-        cursor.execute("SELECT COUNT(*) FROM users")
-        total = cursor.fetchone()[0]
-        
-        msg = f"👾 تم دخول شخص جديد 👾\n----------\n• الاسم : {name}\n• الايدي : {user_id}\n----------\n• الكلي : {total}"
-        try: bot.send_message(ADMIN_ID, msg)
-        except: pass
-    bot.reply_to(message, "مرحباً بك!")
+    bot.reply_to(message, "أرسل الكود للتفعيل.")
 
 @bot.message_handler(func=lambda m: m.text == SECRET_CODE)
-def send_all(message):
-    if message.reply_to_message:
-        cursor.execute("SELECT user_id FROM users")
-        users = cursor.fetchall()
-        bot.reply_to(message, f"🚀 جاري الإرسال لـ {len(users)}...")
-        for u in users:
-            try:
-                bot.forward_message(u[0], message.chat.id, message.reply_to_message.id)
-                time.sleep(0.1)
-            except: pass
-        bot.send_message(message.chat.id, "✅ تم!")
+def ask_username(message):
+    user_data[message.chat.id] = {'step': 'get_user'}
+    bot.send_message(message.chat.id, "🔐 أرسل Username الخاص بـ Threads:")
 
-def run_flask():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+@bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get('step') == 'get_user')
+def get_username(message):
+    user_data[message.chat.id]['username'] = message.text
+    user_data[message.chat.id]['step'] = 'get_pass'
+    bot.send_message(message.chat.id, "📥 أرسل Password:")
+
+@bot.message_handler(func=lambda m: user_data.get(m.chat.id, {}).get('step') == 'get_pass')
+def get_password(message):
+    user_data[message.chat.id]['password'] = message.text
+    user_data[message.chat.id]['step'] = 'active'
+    bot.send_message(message.chat.id, "✅ جاري بدء الفحص...")
+    scrape_threads_links(message.chat.id)
 
 if __name__ == "__main__":
-    # تشغيل Flask في الخلفية
-    t = Thread(target=run_flask)
-    t.start()
-    # تشغيل البوت
-    print("Bot is running...")
-    bot.infinity_polling()
+    keep_alive() # تشغيل السيرفر الوهمي
+    print("Bot is alive!")
+    bot.polling(none_stop=True)
