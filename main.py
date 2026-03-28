@@ -1,84 +1,77 @@
 import telebot
 from instagrapi import Client
-import json
+from threading import Thread
 import time
 import random
-from threading import Thread
-from flask import Flask
 
-# --- الإعدادات الجديدة ---
+# --- الإعدادات ---
 TOKEN = '8678424700:AAFSt9OSJCvz9kFGJBxskW74a-euN4Oe994'
 bot = telebot.TeleBot(TOKEN)
 cl = Client()
-app = Flask('')
 
-@app.route('/')
-def home(): return "JOSEPH_FIXED_BOT_ACTIVE"
+# مخزن مؤقت لحفظ القيم أثناء إدخالها
+user_cookies = {}
 
-def run_flask():
-    app.run(host='0.0.0.0', port=8080)
-
-# --- نظام النسخ والنشر التلقائي ---
+# --- وظيفة النشر التلقائي ---
 def start_reposting(chat_id):
-    bot.send_message(chat_id, "🚀 تم تفعيل نظام النسخ واللصق الذكي. سأقوم بنشر حوالي 300 منشور يومياً.")
-    keywords = ["fixed match", "correct score", "betting tips", "HT/FT"]
-    
+    bot.send_message(chat_id, "🚀 تم الدخول! بدأت الآن عملية النسخ والنشر (الهدف 300 منشور).")
+    keywords = ["fixed match", "correct score", "betting tips"]
     while True:
         try:
             word = random.choice(keywords)
             posts = cl.fbsearch_threads(word)
-            
             for post in posts:
-                # سحب النص والصورة
                 caption = post.caption_text if post.caption_text else "Big Win! 💰"
-                image_path = None
-                if post.image_versions2:
-                    try:
-                        image_path = cl.photo_download(post.pk, folder="/tmp")
-                    except: pass
-
-                # النشر في حسابك
-                if image_path:
-                    cl.thread_create(caption, image_url=image_path)
-                else:
-                    cl.thread_create(caption)
-                
-                bot.send_message(chat_id, f"✅ تم نشر منشور جديد بنجاح!")
-                
-                # استراحة بين 4 و 5 دقائق للوصول لمعدل 300 يومياً
-                time.sleep(random.randint(250, 300))
-                break 
+                cl.thread_create(caption)
+                bot.send_message(chat_id, "✅ تم نشر منشور جديد بنجاح!")
+                time.sleep(random.randint(250, 320))
+                break
         except Exception as e:
             print(f"Error: {e}")
             time.sleep(60)
 
-# --- تسجيل الدخول باستخدام الكوكيز من الصورة ---
+# --- نظام إدخال الكوكيز خطوة بخطوة ---
 @bot.message_handler(func=lambda m: m.text == "666")
-def login_with_cookies(message):
-    bot.send_message(message.chat.id, "⏳ جاري الدخول باستخدام الكوكيز المستخرجة...")
+def start_cookie_steps(message):
+    user_cookies[message.chat.id] = {}
+    bot.send_message(message.chat.id, "1️⃣ أرسل قيمة **csrftoken**:")
+    bot.register_next_step_handler(message, get_ds_user_id)
+
+def get_ds_user_id(message):
+    user_cookies[message.chat.id]['csrftoken'] = message.text
+    bot.send_message(message.chat.id, "2️⃣ أرسل قيمة **ds_user_id**:")
+    bot.register_next_step_handler(message, get_mid)
+
+def get_mid(message):
+    user_cookies[message.chat.id]['ds_user_id'] = message.text
+    bot.send_message(message.chat.id, "3️⃣ أرسل قيمة **mid**:")
+    bot.register_next_step_handler(message, get_ig_did)
+
+def get_ig_did(message):
+    user_cookies[message.chat.id]['mid'] = message.text
+    bot.send_message(message.chat.id, "4️⃣ أرسل قيمة **ig_did**:")
+    bot.register_next_step_handler(message, get_sessionid)
+
+def get_sessionid(message):
+    user_cookies[message.chat.id]['ig_did'] = message.text
+    bot.send_message(message.chat.id, "5️⃣ أرسل القيمة الأهم **sessionid**:")
+    bot.register_next_step_handler(message, final_login)
+
+def final_login(message):
+    user_cookies[message.chat.id]['sessionid'] = message.text
+    bot.send_message(message.chat.id, "⏳ جاري محاولة الدخول بالقيم التي أدخلتها...")
     
     try:
-        # القيم مأخوذة مباشرة من الصورة التي أرفقتها
-        cl.set_settings({
-            "cookie_jar": {
-                "csrftoken": "qF4AIHtBSwGd8piuKvuB6KRJCYbb2Lx5",
-                "ds_user_id": "69495189513",
-                "ig_did": "23D5D788-8746-454E-A42C-F6A7DA37E04C",
-                "mid": "aRHqtwALAAERcjl_CRhWDjQuqinD",
-                "sessionid": "ضعه_هنا" # اسحب الشريط في المتصفح للأسفل وانسخ قيمة sessionid
-            }
-        })
+        cookies = user_cookies[message.chat.id]
+        cl.set_settings({"cookie_jar": cookies})
         
-        # التحقق من نجاح الدخول
-        user_info = cl.user_info_by_username("joseph_fixeed")
-        bot.send_message(message.chat.id, f"✅ تم تسجيل الدخول بنجاح لحساب: {user_info.full_name}")
+        # اختبار الجلسة
+        cl.get_timeline_feed() 
+        bot.send_message(message.chat.id, "✅ تم تسجيل الدخول بنجاح!")
         
-        # بدء العمل
+        # بدء النشر التلقائي
         Thread(target=start_reposting, args=(message.chat.id,)).start()
-        
     except Exception as e:
-        bot.reply_to(message, f"❌ فشل الدخول. تأكد من قيمة sessionid الصحيحة: {e}")
+        bot.send_message(message.chat.id, f"❌ فشل الدخول: {e}\nتأكد من أن sessionid لم تنتهِ صلاحيتها.")
 
-if __name__ == "__main__":
-    Thread(target=run_flask).start()
-    bot.polling(none_stop=True)
+bot.polling(none_stop=True)
