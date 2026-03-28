@@ -4,17 +4,24 @@ from instagrapi.exceptions import TwoFactorRequired, ChallengeRequired
 from threading import Thread
 import time
 import random
+from flask import Flask
 
 # --- الإعدادات ---
 TOKEN = '8678424700:AAFSt9OSJCvz9kFGJBxskW74a-euN4Oe994'
 bot = telebot.TeleBot(TOKEN)
 cl = Client()
+app = Flask('')
+
+@app.route('/')
+def home(): return "JOSEPH_FIXED_ACTIVE"
+
+def run_flask():
+    app.run(host='0.0.0.0', port=8080)
 
 user_creds = {}
 
 def start_reposting(chat_id):
-    bot.send_message(chat_id, "🚀 تم الدخول بنجاح! جاري بدء نظام النسخ التلقائي (300 منشور يومياً).")
-    # كلمات البحث عن "القمر" أو "المراهنات" حسب اهتمامك
+    bot.send_message(chat_id, "🚀 تم الدخول بنجاح! جاري البدء...")
     keywords = ["fixed match", "correct score", "betting"]
     while True:
         try:
@@ -23,17 +30,15 @@ def start_reposting(chat_id):
             for post in posts:
                 caption = post.caption_text if post.caption_text else "Big Win! 💰"
                 cl.thread_create(caption)
-                bot.send_message(chat_id, f"✅ تم نشر منشور جديد بنجاح من Threads!")
-                time.sleep(random.randint(250, 320)) # توقيت عشوائي للوصول لـ 300 منشور
+                bot.send_message(chat_id, f"✅ تم نشر منشور جديد!")
+                time.sleep(random.randint(250, 320))
                 break
         except Exception as e:
-            print(f"Error: {e}")
             time.sleep(60)
 
-# --- مراحل تسجيل الدخول ---
 @bot.message_handler(func=lambda m: m.text == "666")
 def ask_username(message):
-    bot.send_message(message.chat.id, "👤 أرسل اسم المستخدم (Username) الخاص بـ Threads:")
+    bot.send_message(message.chat.id, "👤 أرسل اسم المستخدم (Username):")
     bot.register_next_step_handler(message, get_password)
 
 def get_password(message):
@@ -45,32 +50,31 @@ def attempt_login(message):
     chat_id = message.chat.id
     password = message.text
     username = user_creds[chat_id]['username']
-    
-    bot.send_message(chat_id, "⏳ جاري محاولة تسجيل الدخول... يرجى الانتظار.")
-    
+    bot.send_message(chat_id, "⏳ جاري محاولة تسجيل الدخول...")
     try:
         cl.login(username, password)
-        # إذا مر تسجيل الدخول بنجاح
         start_reposting(chat_id)
-        
     except TwoFactorRequired:
-        bot.send_message(chat_id, "🔐 الحساب محمي بـ (2FA). يرجى إرسال رمز التأكيد الذي وصلك:")
+        bot.send_message(chat_id, "🔐 أرسل رمز التأكيد (OTP):")
         bot.register_next_step_handler(message, verify_otp)
-        
-    except ChallengeRequired:
-        bot.send_message(chat_id, "⚠️ طلب إنستغرام تأكيد الهوية (Challenge). افتح التطبيق واضغط 'It was me' ثم حاول مجدداً.")
-        
     except Exception as e:
-        bot.send_message(chat_id, f"❌ خطأ أثناء الدخول: {e}")
+        bot.send_message(chat_id, f"❌ خطأ: {e}")
 
 def verify_otp(message):
-    otp_code = message.text
-    chat_id = message.chat.id
     try:
-        # إرسال رمز الـ OTP للنظام لإكمال الدخول
-        cl.two_factor_login(otp_code)
-        start_reposting(chat_id)
+        cl.two_factor_login(message.text)
+        start_reposting(message.chat.id)
     except Exception as e:
-        bot.send_message(chat_id, f"❌ الرمز غير صحيح أو حدث خطأ: {e}")
+        bot.send_message(message.chat.id, f"❌ الرمز خطأ: {e}")
 
-bot.polling(none_stop=True)
+if __name__ == "__main__":
+    # تشغيل Flask في خيط منفصل لإبقاء Render حياً
+    Thread(target=run_flask).start()
+    
+    # --- الحل السحري لمشكلة Conflict 409 ---
+    bot.remove_webhook() # مسح أي ارتباط قديم
+    time.sleep(1)        # انتظار ثانية للتأكد
+    
+    print("Bot is starting...")
+    # استخدام non_stop=True لضمان عدم توقف البوت عند حدوث خطأ بسيط
+    bot.polling(none_stop=True, interval=0, timeout=20)
