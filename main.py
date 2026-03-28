@@ -8,16 +8,21 @@ from threading import Thread
 # البيانات الخاصة بك
 TOKEN = "7225070696:AAEBSquEmyDCzz0o65GoVPHIG2Xk5qBf_Lg"
 SECRET_CODE = "7779900009"
-ADMIN_ID = 5077384676  # الآيدي ديالك لي فالتصويرة
+ADMIN_ID = 5077384676 
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
 @app.route('/')
-def index(): return "Bot Status: Online"
+def index():
+    return "Bot is Alive!"
 
 # قاعدة البيانات
-conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+def get_db_connection():
+    conn = sqlite3.connect('bot_data.db', check_same_thread=False)
+    return conn
+
+conn = get_db_connection()
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, name TEXT, username TEXT)')
 conn.commit()
@@ -36,15 +41,7 @@ def start(message):
         cursor.execute("SELECT COUNT(*) FROM users")
         total = cursor.fetchone()[0]
         
-        # الإشعار اللي بغيتي (نفس شكل الصورة)
-        msg = f"👾 تم دخول شخص جديد إلى البوت الخاص بك 👾\n"
-        msg += f"------------------------------\n"
-        msg += f"• معلومات العضو الجديد .\n\n"
-        msg += f"• الاسم : {name}\n"
-        msg += f"• معرف : @{username}\n"
-        msg += f"• الايدي : {user_id}\n"
-        msg += f"------------------------------\n"
-        msg += f"• عدد الأعضاء الكلي : {total}"
+        msg = f"👾 تم دخول شخص جديد 👾\n----------\n• الاسم : {name}\n• الايدي : {user_id}\n----------\n• الكلي : {total}"
         try: bot.send_message(ADMIN_ID, msg)
         except: pass
     bot.reply_to(message, "مرحباً بك!")
@@ -54,17 +51,21 @@ def send_all(message):
     if message.reply_to_message:
         cursor.execute("SELECT user_id FROM users")
         users = cursor.fetchall()
-        bot.reply_to(message, f"🚀 جاري الإرسال لـ {len(users)} عضو...")
+        bot.reply_to(message, f"🚀 جاري الإرسال لـ {len(users)}...")
         for u in users:
             try:
                 bot.forward_message(u[0], message.chat.id, message.reply_to_message.id)
-                time.sleep(0.05)
+                time.sleep(0.1)
             except: pass
-        bot.send_message(message.chat.id, "✅ تم الإرسال للجميع!")
+        bot.send_message(message.chat.id, "✅ تم!")
 
-def run():
+def run_flask():
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
 
 if __name__ == "__main__":
-    Thread(target=run).start()
+    # تشغيل Flask في الخلفية
+    t = Thread(target=run_flask)
+    t.start()
+    # تشغيل البوت
+    print("Bot is running...")
     bot.infinity_polling()
