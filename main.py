@@ -1,122 +1,88 @@
 import telebot
-from instagrapi import Client
+import requests
+from bs4 import BeautifulSoup
+import re
+import time
 from flask import Flask
 from threading import Thread
-import re
-import os
-import time
 
-# --- الإعدادات الأساسية ---
+# --- الإعدادات ---
 TOKEN = '7707660693:AAG98DsquCzScvjTkt-6ezSVHOCd9Wmz6nE'
 bot = telebot.TeleBot(TOKEN)
-cl = Client()
-SESSION_PATH = "threads_session.json"
-HISTORY_FILE = "links_history.txt"
+SECRET_CODE = "666"
+HISTORY_FILE = "found_links.txt"
 
 # سيرفر إبقاء البوت حياً على Render
 app = Flask('')
 @app.route('/')
-def home(): return "JOSEPH_FIXED_BOT_ACTIVE"
+def home(): return "Bot is Alive"
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
 
-# قاموس لتتبع حالة كل مستخدم
-user_states = {}
+# --- دالة فحص الروابط المكررة ---
+def is_duplicate(link):
+    try:
+        with open(HISTORY_FILE, "r") as f:
+            return link in f.read()
+    except FileNotFoundError:
+        return False
 
-# --- دوال مساعدة ---
 def save_link(link):
     with open(HISTORY_FILE, "a") as f:
         f.write(link + "\n")
 
-def is_old_link(link):
-    if not os.path.exists(HISTORY_FILE): return False
-    with open(HISTORY_FILE, "r") as f:
-        return link in f.read()
-
-# --- دالة البحث المتقدمة ---
-def deep_scrape(chat_id):
-    bot.send_message(chat_id, "🚀 بدأنا الفحص الشامل لـ Threads... سأرسل لك كل قناة جديدة أجدها.")
-    # كلمات البحث المستهدفة
-    keywords = ["fixed matches", "correct score", "betting tips", "t.me/", "HT/FT"]
+# --- دالة البحث بدون حساب (Scraper) ---
+def fetch_links_without_login(chat_id):
+    bot.send_message(chat_id, "🔍 جاري البحث في Threads عن روابط جديدة (بدون حساب)...")
     
-    while True: # دورة بحث مستمرة
+    # كلمات البحث المستهدفة في Threads عبر Google
+    search_queries = [
+        'site:threads.net "t.me/" "fixed"',
+        'site:threads.net "t.me/" "match"',
+        'site:threads.net "t.me/" "correct score"'
+    ]
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+    }
+
+    found_count = 0
+    for query in search_queries:
         try:
-            for word in keywords:
-                posts = cl.fbsearch_threads(word)
-                for post in posts:
-                    text = post.caption_text if post.caption_text else ""
-                    links = re.findall(r't\.me/[\w\d_]+', text)
-                    for l in links:
-                        full_link = f"https://{l}"
-                        if not is_old_link(full_link):
-                            bot.send_message(chat_id, f"🎯 **قناة جديدة مكتشفة:**\n\n{full_link}\n\n🔗 المصدر: threads.net/t/{post.code}")
-                            save_link(full_link)
-                            time.sleep(2)
-            time.sleep(600) # انتظر 10 دقائق قبل الفحص التالي لتجنب الحظر
+            # استخدام Google Search لسحب الروابط المؤرشفة من Threads
+            url = f"https://www.google.com/search?q={query}"
+            response = requests.get(url, headers=headers)
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # البحث عن أي نص يشبه روابط تيليجرام في نتائج البحث
+            all_text = soup.get_text()
+            links = re.findall(r't\.me/[\w\d_]+', all_text)
+            
+            for l in links:
+                full_link = f"https://{l}"
+                if not is_duplicate(full_link):
+                    bot.send_message(chat_id, f"🎯 تم العثور على قناة:\n{full_link}")
+                    save_link(full_link)
+                    found_count += 1
+                    time.sleep(1)
+                    
         except Exception as e:
-            print(f"Scrape Error: {e}")
-            time.sleep(60)
+            print(f"Error: {e}")
 
-# --- معالجة الرسائل والسيناريوهات ---
+    if found_count == 0:
+        bot.send_message(chat_id, "📭 لم أجد روابط جديدة حالياً. سأعيد المحاولة لاحقاً.")
 
+# --- معالجة الأوامر ---
 @bot.message_handler(commands=['start'])
-def welcome(message):
-    bot.reply_to(message, "مرحباً! أرسل كود التفعيل (666) لربط حسابك والبدء.")
+def start(message):
+    bot.reply_to(message, "أهلاً بك في بوت سحب الروابط. أرسل 666 للبدء.")
 
-@bot.message_handler(func=lambda m: m.text == "666")
-def init_login(message):
-    user_states[message.chat.id] = {'step': 'username'}
-    bot.send_message(message.chat.id, "👤 أرسل اسم المستخدم (Username) لـ Threads:")
+@bot.message_handler(func=lambda m: m.text == SECRET_CODE)
+def trigger_search(message):
+    fetch_links_without_login(message.chat.id)
 
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'username')
-def get_user(message):
-    user_states[message.chat.id]['user'] = message.text
-    user_states[message.chat.id]['step'] = 'pass'
-    bot.send_message(message.chat.id, "🔑 أرسل كلمة المرور (Password):")
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'pass')
-def finalize_login(message):
-    chat_id = message.chat.id
-    username = user_states[chat_id]['user']
-    password = message.text
-    
-    bot.send_message(chat_id, "⏳ جاري محاولة تسجيل الدخول... قد يطلب منك كود التحقق.")
-    
-    try:
-        # محاولة تحميل جلسة سابقة لتجنب الـ Challenge
-        if os.path.exists(SESSION_PATH):
-            cl.load_settings(SESSION_PATH)
-        
-        cl.login(username, password)
-        cl.dump_settings(SESSION_PATH)
-        
-        bot.send_message(chat_id, "✅ تسجيل دخول ناجح! سأبدأ العمل الآن.")
-        Thread(target=deep_scrape, args=(chat_id,)).start()
-        
-    except Exception as e:
-        error_msg = str(e)
-        if "challenge_required" in error_msg:
-            user_states[chat_id]['step'] = 'otp'
-            bot.send_message(chat_id, "⚠️ Meta تطلب كود التحقق. أرسل الكود المكون من 6 أرقام هنا:")
-        else:
-            bot.send_message(chat_id, f"❌ خطأ غير متوقع: {error_msg}")
-
-@bot.message_handler(func=lambda m: user_states.get(m.chat.id, {}).get('step') == 'otp')
-def handle_otp(message):
-    chat_id = message.chat.id
-    otp_code = message.text
-    try:
-        # استكمال الدخول باستخدام الكود
-        cl.login(user_states[chat_id]['user'], user_states[chat_id]['pass'], verification_code=otp_code)
-        cl.dump_settings(SESSION_PATH)
-        bot.send_message(chat_id, "✅ تم فك التشفير بنجاح! جاري البدء...")
-        Thread(target=deep_scrape, args=(chat_id,)).start()
-    except Exception as e:
-        bot.send_message(chat_id, f"❌ الكود خاطئ أو انتهت صلاحيته: {e}")
-
-# --- تشغيل البوت ---
 if __name__ == "__main__":
-    Thread(target=run_flask).start() # تشغيل Flask لإبقاء Render مستيقظاً
-    print("JOSEPH_FIXED BOT IS RUNNING...")
+    Thread(target=run_flask).start()
+    print("Bot is running without login...")
     bot.polling(none_stop=True)
