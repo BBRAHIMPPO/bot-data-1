@@ -2,3 +2,4 @@ selenium
 pyTelegramBotAPI
 webdriver-manager
 flask
+Pillow
