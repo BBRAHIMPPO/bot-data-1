@@ -1,5 +1,3 @@
-selenium
 pyTelegramBotAPI
-webdriver-manager
-flask
 Pillow
+flask
