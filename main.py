@@ -1,88 +1,73 @@
-import telebot
-from PIL import Image, ImageDraw, ImageFont
+import threading
+import time
 import random
 import io
+import os
+from flask import Flask
+import telebot
+from PIL import Image, ImageDraw, ImageFont
 
-# التوكن الخاص بك
+# --- إعداد Flask لـ Render ---
+app = Flask(__name__)
+@app.route('/')
+def home(): return "Image Bot is Running!"
+
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
+
+# --- إعدادات البوت ---
 TOKEN = '8762517288:AAFPSd4rv5z5RZRv8xHABt4ALcC25fMpoBA'
 bot = telebot.TeleBot(TOKEN)
 
 def generate_score_and_odds():
-    # إنشاء قائمة بجميع النتائج الممكنة من 0-0 لـ 6-6
-    possible_scores = []
-    for home in range(7):
-        for away in range(7):
-            possible_scores.append((home, away))
-    
-    # اختيار نتيجة واحدة عشوائياً من القائمة
+    possible_scores = [(h, a) for h in range(7) for a in range(7)]
     home, away = random.choice(possible_scores)
     score_str = f"{home} - {away}"
+    total = home + away
     
-    # حساب الـ Odds بناءً على مجموع الأهداف
-    total_goals = home + away
-    
-    if total_goals == 0: # 0-0
-        odds = round(random.uniform(9.0, 11.0), 2)
-    elif total_goals <= 2: # مجموع أهداف قليل
-        odds = round(random.uniform(12.0, 18.0), 2)
-    elif total_goals <= 4: # مجموع أهداف متوسط
-        odds = round(random.uniform(19.0, 30.0), 2)
-    elif total_goals <= 7: # أهداف كثيرة
-        odds = round(random.uniform(31.0, 42.0), 2)
-    else: # نتائج كبيرة بحال 5-5 أو 6-6
-        odds = round(random.uniform(43.0, 50.0), 2)
-        
+    if total == 0: odds = round(random.uniform(9.0, 11.0), 2)
+    elif total <= 2: odds = round(random.uniform(12.0, 18.0), 2)
+    elif total <= 4: odds = round(random.uniform(19.0, 30.0), 2)
+    elif total <= 7: odds = round(random.uniform(31.0, 42.0), 2)
+    else: odds = round(random.uniform(43.0, 50.0), 2)
     return score_str, odds
 
 @bot.message_handler(content_types=['photo'])
 def handle_photo(message):
     try:
-        # تحميل الصورة اللي صيفطتي
         file_info = bot.get_file(message.photo[-1].file_id)
         downloaded_file = bot.download_file(file_info.file_path)
         
-        # تعديل الصورة بـ Pillow
         img = Image.open(io.BytesIO(downloaded_file))
         draw = ImageDraw.Draw(img)
         
-        # الحصول على النتيجة والـ Odds
         score, odds = generate_score_and_odds()
-        
-        # النص اللي غيتكتب فوق الصورة
         overlay_text = f"FIXED: {score}\nODDS: {odds}"
         
-        # اختيار الخط (إلا مكنش arial غيخدم بالافتراضي)
         try:
-            font = ImageFont.truetype("arial.ttf", 50) # كبّرت الخط لـ 50 باش يبان واضح
+            # في Linux/Render غالباً ما كيكونش Arial، كنستعملو هاد الطريقة
+            font = ImageFont.load_default() 
         except:
-            font = ImageFont.load_default()
+            font = None
 
-        # كتابة النص (الإحداثيات 20, 20 تقدر تبدلها على حساب فين بغيتيها تبان)
-        # اللون الأخضر (0, 255, 0) كيبان مزيان في أوراق اللعب
-        draw.text((20, 20), overlay_text, fill=(0, 255, 0), font=font)
+        # كتابة النص باللون الأخضر
+        draw.text((25, 25), overlay_text, fill=(0, 255, 0), font=font)
 
-        # تحويل الصورة المعدلة لإرسالها
         output = io.BytesIO()
         img.save(output, format='PNG')
         output.seek(0)
 
-        # الـ Caption اللي طلبتي
-        caption_text = f"""
-100 % Real Information
-
-Tip : Correct Score ( {score} ) FT
- 
-Odd : {odds}
-
-This Match Is 100% Safe And it’s Trusted And Guaranteed
-
-Available on all betting sites 🤝
-"""
+        caption_text = f"✅ **100% Real Information**\n\nTip : Correct Score ( {score} ) FT\nOdd : {odds}\n\nThis Match Is 100% Safe And Guaranteed"
         
         bot.send_photo(message.chat.id, output, caption=caption_text, parse_mode='Markdown')
 
     except Exception as e:
         print(f"Error: {e}")
 
-print("Bot is ready...")
-bot.infinity_polling()
+# --- تشغيل البوت مع Flask ---
+if __name__ == "__main__":
+    # تشغيل Flask في Thread منفصل
+    threading.Thread(target=run_flask).start()
+    print("🤖 Bot is ready and Flask is running...")
+    bot.infinity_polling()
