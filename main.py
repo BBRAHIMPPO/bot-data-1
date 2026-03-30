@@ -1,69 +1,88 @@
-import threading
-import time
-import random
-import os
-from flask import Flask # غادي نزيدو هادي باش Render يرتاح
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from webdriver_manager.chrome import ChromeDriverManager
 import telebot
+from PIL import Image, ImageDraw, ImageFont
+import random
+import io
 
-# --- إعداد Flask لـ Render ---
-app = Flask(__name__)
-@app.route('/')
-def home(): return "Bot is Running!"
-
-def run_flask():
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
-
-# --- إعدادات البوت ---
-TOKEN = "8678424700:AAFSt9OSJCvz9kFGJBxskW74a-euN4Oe994"
+# التوكن الخاص بك
+TOKEN = '8762517288:AAFPSd4rv5z5RZRv8xHABt4ALcC25fMpoBA'
 bot = telebot.TeleBot(TOKEN)
-is_running = False
-seen_links = set()
 
-def get_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_bin = os.environ.get("GOOGLE_CHROME_BIN")
-    if chrome_bin: chrome_options.binary_location = chrome_bin
+def generate_score_and_odds():
+    # إنشاء قائمة بجميع النتائج الممكنة من 0-0 لـ 6-6
+    possible_scores = []
+    for home in range(7):
+        for away in range(7):
+            possible_scores.append((home, away))
     
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    return driver
+    # اختيار نتيجة واحدة عشوائياً من القائمة
+    home, away = random.choice(possible_scores)
+    score_str = f"{home} - {away}"
+    
+    # حساب الـ Odds بناءً على مجموع الأهداف
+    total_goals = home + away
+    
+    if total_goals == 0: # 0-0
+        odds = round(random.uniform(9.0, 11.0), 2)
+    elif total_goals <= 2: # مجموع أهداف قليل
+        odds = round(random.uniform(12.0, 18.0), 2)
+    elif total_goals <= 4: # مجموع أهداف متوسط
+        odds = round(random.uniform(19.0, 30.0), 2)
+    elif total_goals <= 7: # أهداف كثيرة
+        odds = round(random.uniform(31.0, 42.0), 2)
+    else: # نتائج كبيرة بحال 5-5 أو 6-6
+        odds = round(random.uniform(43.0, 50.0), 2)
+        
+    return score_str, odds
 
-def scrape_logic(chat_id):
-    global is_running
-    driver = None
-    while is_running:
+@bot.message_handler(content_types=['photo'])
+def handle_photo(message):
+    try:
+        # تحميل الصورة اللي صيفطتي
+        file_info = bot.get_file(message.photo[-1].file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
+        
+        # تعديل الصورة بـ Pillow
+        img = Image.open(io.BytesIO(downloaded_file))
+        draw = ImageDraw.Draw(img)
+        
+        # الحصول على النتيجة والـ Odds
+        score, odds = generate_score_and_odds()
+        
+        # النص اللي غيتكتب فوق الصورة
+        overlay_text = f"FIXED: {score}\nODDS: {odds}"
+        
+        # اختيار الخط (إلا مكنش arial غيخدم بالافتراضي)
         try:
-            if not driver: driver = get_driver()
-            # ... (نفس منطق السكرابينغ اللي عطيتهولك قبل) ...
-            driver.get("https://www.threads.net/search?q=correct%20score")
-            time.sleep(10)
-            bot.send_message(chat_id, "🔍 البحث شغال...")
-            time.sleep(300)
-        except Exception as e:
-            if driver: driver.quit()
-            driver = None
-            time.sleep(20)
+            font = ImageFont.truetype("arial.ttf", 50) # كبّرت الخط لـ 50 باش يبان واضح
+        except:
+            font = ImageFont.load_default()
 
-@bot.message_handler(func=lambda m: m.text == "999")
-def start(m):
-    global is_running
-    if not is_running:
-        is_running = True
-        bot.reply_to(m, "🚀 انطلقنا!")
-        threading.Thread(target=scrape_logic, args=(m.chat.id,)).start()
+        # كتابة النص (الإحداثيات 20, 20 تقدر تبدلها على حساب فين بغيتيها تبان)
+        # اللون الأخضر (0, 255, 0) كيبان مزيان في أوراق اللعب
+        draw.text((20, 20), overlay_text, fill=(0, 255, 0), font=font)
 
-# تشغيل Flask في الخلفية
-threading.Thread(target=run_flask).start()
+        # تحويل الصورة المعدلة لإرسالها
+        output = io.BytesIO()
+        img.save(output, format='PNG')
+        output.seek(0)
 
-# تشغيل البوت
-print("🤖 Bot is active...")
-bot.infinity_polling(timeout=10, long_polling_timeout=5)
+        # الـ Caption اللي طلبتي
+        caption_text = f"""
+100 % Real Information
+
+Tip : Correct Score ( {score} ) FT
+ 
+Odd : {odds}
+
+This Match Is 100% Safe And it’s Trusted And Guaranteed
+
+Available on all betting sites 🤝
+"""
+        
+        bot.send_photo(message.chat.id, output, caption=caption_text, parse_mode='Markdown')
+
+    except Exception as e:
+        print(f"Error: {e}")
+
+print("Bot is ready...")
+bot.infinity_polling()
