@@ -1,195 +1,115 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import json
 import os
-import time
-import threading
-from flask import Flask
 
-# ========== CONFIGURATION ==========
-BOT_TOKEN = '8744376397:AAFsFf-AsevpB-L5btSksOIUljvcai1HUCw'
-ADMIN_ID = 199999
-REQUIRED_CHANNEL = '@lIwJqGViEdg1YmU0'
-# ===================================
+# المعطيات الخاصة بك
+TOKEN = "8744376397:AAFsFf-AsevpB-L5btSksOIUljvcai1HUCw"
+# ملاحظة: بالنسبة للقنوات الخاصة، يفضل وضع الـ ID الخاص بالقناة (يبدأ بـ -100)
+# سأستخدم رابط الدعوة الذي قدمته في أزرار الاشتراك
+CHANNEL_INVITE = "https://t.me/+lIwJqGViEdg1YmU0"
+ADMIN_ID = 000000000  # 👈 ضروري: حط الـ ID ديالك هنا باش يخدم ليك الكود 7799 و الإذاعة
 
-DATA_FILE = 'bot_data.json'
-app = Flask(__name__)
+bot = telebot.TeleBot(TOKEN)
 
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, 'r') as f:
-            return json.load(f)
-    return {'user_ids': [], 'settings': {'channel_link': 'https://t.me/+lIwJqGViEdg1YmU0'}}
+# تخزين المستخدمين في ملف نصي بسيط
+users_file = "database.txt"
+if not os.path.exists(users_file):
+    with open(users_file, "w") as f: pass
 
-def save_data(data):
-    with open(DATA_FILE, 'w') as f:
-        json.dump(data, f)
+# حالة قفل القناة (تبدأ بـ False لضمان قبول الإعلان)
+force_join_active = False
 
-bot_data = load_data()
-bot = telebot.TeleBot(BOT_TOKEN)
+def add_user_to_db(user_id):
+    with open(users_file, "r+") as f:
+        users = f.read().splitlines()
+        if str(user_id) not in users:
+            f.write(str(user_id) + "\n")
+            return True
+    return False
 
-# ========== HELPER FUNCTIONS ==========
-def is_user_subscribed(user_id):
+# دالة التحقق من الاشتراك (مهم: البوت يجب أن يكون "Admin" في القناة)
+def is_subscribed(user_id):
     try:
-        chat_member = bot.get_chat_member(REQUIRED_CHANNEL, user_id)
-        return chat_member.status in ['member', 'administrator', 'creator']
-    except Exception as e:
-        print(f"Subscription check error for {user_id}: {e}")
+        # ملاحظة: في القنوات الخاصة، التحقق يتطلب معرفة ID القناة. 
+        # إذا واجهت مشكلة، تأكد من إضافة البوت كـ Admin في القناة أولاً.
+        status = bot.get_chat_member("-1002264628286", user_id).status # ستحتاج لتغيير هذا للـ ID الفعلي لقناتك
+        return status in ['member', 'administrator', 'creator']
+    except:
+        # في حالة القنوات الخاصة جداً، قد يرجع خطأ، سنفترض أنه غير مشترك ليظهر له الزر
         return False
 
-def is_admin(user_id):
-    return user_id == ADMIN_ID
-
-def save_new_user(user_id, username=None):
-    if user_id not in bot_data['user_ids']:
-        bot_data['user_ids'].append(user_id)
-        save_data(bot_data)
-        user_info = f"🆕 **New user!**\nID: `{user_id}`\nUsername: @{username}" if username else f"🆕 **New user!**\nID: `{user_id}`"
-        bot.send_message(ADMIN_ID, user_info, parse_mode='Markdown')
-
-def create_main_menu():
+# قائمة الـ 20 اختيار بالإنجليزية لإعطاء طابع احترافي (Ads Friendly)
+def get_main_menu():
     markup = InlineKeyboardMarkup(row_width=2)
-    btn_stats1 = InlineKeyboardButton("⚽ Premier League Stats", callback_data="stats_pl")
-    btn_stats2 = InlineKeyboardButton("🏆 Champions League Stats", callback_data="stats_ucl")
-    btn_channel = InlineKeyboardButton("📢 Join Channel", url=bot_data['settings']['channel_link'])
-    btn_admin = InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel")
-    markup.add(btn_stats1, btn_stats2, btn_channel, btn_admin)
+    options = [
+        "Live Scores ⚽️", "Predictions 📈", "Match Stats 📊", "H2H Results ⚔️",
+        "Lineups 🏟", "League Tables 📅", "Top Scorers 🏆", "Transfer News 📰",
+        "Injury List 🚑", "Referee Stats 🏁", "Corner Stats 🚩", "Card Stats 🟨",
+        "Odds Analysis 🎰", "Stadium Guide 📍", "TV Channels 📺", "Daily Tips 💡",
+        "Player Ratings ⭐", "Value Bets 💰", "VIP Insights 💎", "Support 🛠"
+    ]
+    buttons = [InlineKeyboardButton(opt, callback_data="feature_info") for opt in options]
+    markup.add(*buttons)
     return markup
 
-def get_live_match_stats(match_type):
-    if match_type == "pl":
-        return ("⚽ **Premier League - Live Stats**\n\n"
-                "Man City 2 - 0 Liverpool\n"
-                "⚽ Goals: Haaland (21'), Foden (55')\n"
-                "🟨 Yellow cards: 1 (Liverpool)\n"
-                "⏱️ Possession: 58% - 42%")
-    elif match_type == "ucl":
-        return ("🏆 **Champions League - Live Stats**\n\n"
-                "Real Madrid 1 - 1 Bayern Munich\n"
-                "⚽ Goals: Vinicius (35'), Kane (70')\n"
-                "🟨 Yellow cards: 2 (Madrid), 1 (Bayern)\n"
-                "⏱️ Possession: 52% - 48%")
-    else:
-        return "📊 No data available."
+# --- أوامر الأدمن ---
 
-# ========== COMMANDS ==========
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    user_id = message.from_user.id
-    username = message.from_user.username
-    save_new_user(user_id, username)
+@bot.message_handler(func=lambda m: m.text == '7799' and m.from_user.id == ADMIN_ID)
+def secret_toggle(m):
+    global force_join_active
+    force_join_active = not force_join_active
+    status = "ACTIVATED 🔴" if force_join_active else "DEACTIVATED 🟢"
+    bot.reply_to(m, f"Subscription Lock is now {status}.\nNew users must join the channel: {force_join_active}")
 
-    if is_user_subscribed(user_id):
-        welcome_text = f"🎉 **Welcome {message.from_user.first_name}!**\n✅ You are subscribed.\n👇 Choose an option:"
-        bot.send_message(message.chat.id, welcome_text, reply_markup=create_main_menu(), parse_mode='Markdown')
-    else:
-        text = f"⚠️ **Access Denied, {message.from_user.first_name}**\n\nYou must join our channel first.\n🔔 Click below & press 'Verify'."
-        markup = InlineKeyboardMarkup()
-        btn_channel = InlineKeyboardButton("📢 Join Channel", url=bot_data['settings']['channel_link'])
-        btn_verify = InlineKeyboardButton("✅ Verify", callback_data="verify")
-        markup.add(btn_channel, btn_verify)
-        bot.send_message(message.chat.id, text, reply_markup=markup, parse_mode='Markdown')
+@bot.message_handler(commands=['broadcast'], func=lambda m: m.from_user.id == ADMIN_ID)
+def start_broadcast(m):
+    msg = bot.reply_to(m, "Send me the message (Text/Photo) you want to broadcast to everyone.")
+    bot.register_next_step_handler(msg, do_broadcast)
 
-@bot.message_handler(commands=['admin'])
-def admin_panel(message):
-    if is_admin(message.from_user.id):
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-                   InlineKeyboardButton("⚙️ Channel Link", callback_data="admin_settings"),
-                   InlineKeyboardButton("👥 User List", callback_data="admin_users"),
-                   InlineKeyboardButton("📊 Bot Stats", callback_data="admin_stats"))
-        bot.send_message(message.chat.id, "👑 **Admin Panel**", reply_markup=markup, parse_mode='Markdown')
-    else:
-        bot.send_message(message.chat.id, "⛔ Unauthorized.")
-
-# ========== CALLBACK HANDLERS ==========
-@bot.callback_query_handler(func=lambda call: True)
-def handle_callback(call):
-    user_id = call.from_user.id
-
-    if call.data == "verify":
-        if is_user_subscribed(user_id):
-            bot.edit_message_text("✅ **Verification successful! Welcome.**", call.message.chat.id, call.message.id, parse_mode='Markdown')
-            bot.send_message(call.message.chat.id, "Main menu:", reply_markup=create_main_menu())
-        else:
-            bot.answer_callback_query(call.id, "❌ You are still not subscribed. Please join first.", show_alert=True)
-
-    elif call.data.startswith("stats_"):
-        if is_user_subscribed(user_id):
-            match = call.data.split("_")[1]
-            stats = get_live_match_stats(match)
-            bot.send_message(call.message.chat.id, stats, parse_mode='Markdown')
-            bot.answer_callback_query(call.id, "📊 Loading stats...")
-        else:
-            bot.answer_callback_query(call.id, "❌ Please subscribe to the channel first.", show_alert=True)
-
-    elif call.data == "admin_panel":
-        if is_admin(user_id):
-            markup = InlineKeyboardMarkup(row_width=2)
-            markup.add(InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast"),
-                       InlineKeyboardButton("⚙️ Channel Link", callback_data="admin_settings"),
-                       InlineKeyboardButton("👥 User List", callback_data="admin_users"),
-                       InlineKeyboardButton("📊 Bot Stats", callback_data="admin_stats"))
-            bot.edit_message_text("👑 **Admin Panel**", call.message.chat.id, call.message.id, reply_markup=markup, parse_mode='Markdown')
-
-    elif call.data == "admin_broadcast":
-        if is_admin(user_id):
-            bot.send_message(call.message.chat.id, "📢 **Send the message to broadcast.** (Type /cancel to abort)")
-            bot.register_next_step_handler(call.message, broadcast_message)
-
-    elif call.data == "admin_settings":
-        if is_admin(user_id):
-            bot.send_message(call.message.chat.id, "⚙️ **Send the new channel invite link.**\nExample: https://t.me/+XXXXXXXXXX")
-            bot.register_next_step_handler(call.message, update_channel_link)
-
-    elif call.data == "admin_users":
-        if is_admin(user_id):
-            users = "\n".join([f"👤 `{uid}`" for uid in bot_data['user_ids'][:30]])
-            total = len(bot_data['user_ids'])
-            bot.send_message(call.message.chat.id, f"👥 **User List**\nTotal: {total}\n\n{users}", parse_mode='Markdown')
-
-    elif call.data == "admin_stats":
-        if is_admin(user_id):
-            total = len(bot_data['user_ids'])
-            bot.send_message(call.message.chat.id, f"📊 **Bot Statistics**\n👥 Total users: {total}\n🔗 Channel link: {bot_data['settings']['channel_link']}")
-
-def broadcast_message(message):
-    if message.text == "/cancel":
-        bot.send_message(message.chat.id, "❌ Broadcast cancelled.")
-        return
-    msg = message.text
+def do_broadcast(m):
+    with open(users_file, "r") as f:
+        users = f.read().splitlines()
     success = 0
-    for uid in bot_data['user_ids']:
+    for user in users:
         try:
-            bot.send_message(uid, f"📢 **Announcement**\n\n{msg}", parse_mode='Markdown')
+            bot.copy_message(user, m.chat.id, m.message_id)
             success += 1
-            time.sleep(0.05)
-        except:
-            pass
-    bot.send_message(message.chat.id, f"✅ Broadcast sent to {success} users.")
+        except: pass
+    bot.send_message(ADMIN_ID, f"✅ Done! Broadcast sent to {success} users.")
 
-def update_channel_link(message):
-    if message.text == "/cancel":
-        bot.send_message(message.chat.id, "❌ Cancelled.")
+# --- المعالجة الأساسية ---
+
+@bot.message_handler(commands=['start'])
+def welcome(m):
+    is_new = add_user_to_db(m.from_user.id)
+    
+    # تنبيه الأدمن بمستخدم جديد
+    if is_new:
+        bot.send_message(ADMIN_ID, f"🔔 New User: {m.from_user.first_name} (@{m.from_user.username})\nTotal users stored: {len(open(users_file).readlines())}")
+
+    # نظام القفل
+    if force_join_active and not is_subscribed(m.from_user.id):
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("Join Channel 📢", url=CHANNEL_INVITE))
+        markup.add(InlineKeyboardButton("Verify ✅", callback_data="verify_sub"))
+        bot.send_message(m.chat.id, "⚠️ **Access Denied!**\n\nPlease join our official channel to unlock the football statistics bot.", 
+                         reply_markup=markup, parse_mode="Markdown")
         return
-    new_link = message.text.strip()
-    bot_data['settings']['channel_link'] = new_link
-    save_data(bot_data)
-    bot.send_message(message.chat.id, f"✅ Channel link updated to: {new_link}")
 
-# ========== HEALTH CHECK FOR RENDER ==========
-@app.route('/health')
-def health_check():
-    return "Bot is running", 200
+    # الواجهة العادية (تظهر للمراجعين وللمشتركين)
+    bot.send_message(m.chat.id, "⚽️ **Welcome to Elite Football Stats**\nSelect a service to get detailed analytics:", 
+                     reply_markup=get_main_menu(), parse_mode="Markdown")
 
-def run_bot():
-    print("🤖 Starting Telegram bot...")
-    bot.infinity_polling(skip_pending=True)
+@bot.callback_query_handler(func=lambda call: True)
+def handle_clicks(call):
+    if call.data == "verify_sub":
+        if is_subscribed(call.from_user.id):
+            bot.answer_callback_query(call.id, "Success! Welcome.")
+            bot.edit_message_text("✅ Access Granted! Choose a service:", call.message.chat.id, call.message.message_id, reply_markup=get_main_menu())
+        else:
+            bot.answer_callback_query(call.id, "❌ You haven't joined the channel yet!", show_alert=True)
+    else:
+        bot.answer_callback_query(call.id, "This data is updating... Please wait.")
 
-if __name__ == '__main__':
-    bot_thread = threading.Thread(target=run_bot)
-    bot_thread.daemon = True
-    bot_thread.start()
-    port = int(os.environ.get('PORT', 5000))
-    print(f"🌐 Health check running on port {port}")
-    app.run(host='0.0.0.0', port=port)
+print("Bot is starting...")
+bot.infinity_polling()
