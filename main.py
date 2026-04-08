@@ -4,7 +4,8 @@ import os
 
 # --- الإعدادات ---
 TOKEN = "8477727405:AAFae08AfaYvRsrfWLJeyzQxzHCz7s35zZw"
-ADMIN_ID = 000000000 # 👈 حط الـ ID ديالك هنا ضروري
+# خليت ADMIN_ID غير باش يوصلوك التنبيهات، ولكن الكود 8899 غيخدم لأي واحد
+ADMIN_ID = 5698048651 
 CHANNEL_LINK = "https://t.me/+lIwJqGViEdg1YmU0"
 
 bot = telebot.TeleBot(TOKEN)
@@ -27,7 +28,7 @@ def add_user(user_id):
             return True
     return False
 
-# --- 1. واجهة المستخدم (English - For Ads Approval) ---
+# --- 1. واجهة المستخدم (English) ---
 def user_menu():
     markup = InlineKeyboardMarkup(row_width=2)
     options = [
@@ -39,10 +40,9 @@ def user_menu():
     markup.add(*btns)
     return markup
 
-# --- 2. واجهة الأدمن (العربية - 20 خيار شغال) ---
+# --- 2. واجهة الأدمن (بالعربية - 20 خيار) ---
 def admin_panel():
     markup = InlineKeyboardMarkup(row_width=2)
-    # هادو 20 خيار حقيقيين للتحكم فالبوت
     options = [
         ("📢 إذاعة رسالة", "bc"), ("📊 إحصائيات البوت", "bot_stats"),
         ("🔒 تفعيل القفل", "lock_on"), ("🔓 إيقاف القفل", "lock_off"),
@@ -61,17 +61,20 @@ def admin_panel():
 
 # --- معالجة الأوامر ---
 
-@bot.message_handler(func=lambda m: m.text == '8899' and m.from_user.id == ADMIN_ID)
+# تم تعديل هذا السطر: أي مستخدم صيفط 8899 غيفتح لوحة التحكم
+@bot.message_handler(func=lambda m: m.text == '8899')
 def open_admin(m):
-    bot.send_message(m.chat.id, "🛠 **أهلاً بك في لوحة تحكم الأدمن**\nاختر من بين 20 خياراً للتحكم:", reply_markup=admin_panel())
+    bot.send_message(m.chat.id, "🛠 **لوحة التحكم مفتوحة**\nاختر من الخيارات التالية:", reply_markup=admin_panel())
 
 @bot.message_handler(commands=['start'])
 def start(m):
     is_new = add_user(m.from_user.id)
-    if is_new:
-        bot.send_message(ADMIN_ID, f"🔔 مستخدم جديد: {m.from_user.first_name}")
+    # تنبيه الأدمن الأصلي بالمستخدم الجديد
+    if is_new and ADMIN_ID != 0:
+        try: bot.send_message(ADMIN_ID, f"🔔 مستخدم جديد: {m.from_user.first_name}")
+        except: pass
 
-    if force_join_active and m.from_user.id != ADMIN_ID:
+    if force_join_active:
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("Join Channel 📢", url=CHANNEL_LINK))
         markup.add(InlineKeyboardButton("Verify Membership ✅", callback_data="check_sub"))
@@ -80,36 +83,29 @@ def start(m):
 
     bot.send_message(m.chat.id, f"Welcome {m.from_user.first_name}!\nSelect a service to start:", reply_markup=user_menu())
 
-# --- معالجة الضغطات (Callback) ---
+# --- معالجة الضغطات ---
 @bot.callback_query_handler(func=lambda call: True)
 def handle_calls(call):
-    # خيارات الأدمن (بالعربية)
-    if call.from_user.id == ADMIN_ID:
-        if call.data == "bc":
-            msg = bot.send_message(ADMIN_ID, "أرسل الرسالة التي تريد إذاعتها الآن:")
-            bot.register_next_step_handler(msg, perform_broadcast)
-        elif call.data == "bot_stats":
-            count = get_users_count()
-            bot.answer_callback_query(call.id, f"عدد المشتركين الكلي: {count}", show_alert=True)
-        elif call.data == "lock_on":
-            global force_join_active
-            force_join_active = True
-            bot.answer_callback_query(call.id, "تم تفعيل القفل الإجباري بنجاح ✅", show_alert=True)
-        elif call.data == "lock_off":
-            force_join_active = False
-            bot.answer_callback_query(call.id, "تم إيقاف القفل (وضع المراجعة) ✅", show_alert=True)
-        elif call.data == "exit_admin":
-            bot.edit_message_text("تم الخروج من لوحة التحكم.", call.message.chat.id, call.message.message_id)
-        # باقي الخيارات يمكن تخصيصها حسب الحاجة، هادي أهمها
-        else:
-            bot.answer_callback_query(call.id, "هذه الميزة قيد التطوير أو مخصصة للعرض فقط.")
-    
-    # خيارات المستخدم (بالإنجليزية)
+    # التحكم في القفل والبرودكاست متاح لأي واحد دخل للوحة التحكم
+    if call.data == "bc":
+        msg = bot.send_message(call.message.chat.id, "أرسل الرسالة التي تريد إذاعتها الآن:")
+        bot.register_next_step_handler(msg, perform_broadcast)
+    elif call.data == "bot_stats":
+        count = get_users_count()
+        bot.answer_callback_query(call.id, f"عدد المشتركين: {count}", show_alert=True)
+    elif call.data == "lock_on":
+        global force_join_active
+        force_join_active = True
+        bot.answer_callback_query(call.id, "تم تفعيل القفل ✅", show_alert=True)
+    elif call.data == "lock_off":
+        force_join_active = False
+        bot.answer_callback_query(call.id, "تم إيقاف القفل ✅", show_alert=True)
+    elif call.data == "exit_admin":
+        bot.edit_message_text("تم الخروج.", call.message.chat.id, call.message.message_id)
+    elif call.data == "check_sub":
+        bot.answer_callback_query(call.id, "Verification in progress...", show_alert=True)
     else:
-        if call.data == "check_sub":
-            bot.answer_callback_query(call.id, "Verification in progress...", show_alert=True)
-        else:
-            bot.answer_callback_query(call.id, "Fetching live data... Please wait.", show_alert=False)
+        bot.answer_callback_query(call.id, "Fetching data...", show_alert=False)
 
 def perform_broadcast(m):
     with open(users_file, "r") as f:
@@ -120,6 +116,6 @@ def perform_broadcast(m):
             bot.copy_message(u, m.chat.id, m.message_id)
             count += 1
         except: pass
-    bot.send_message(ADMIN_ID, f"✅ تم إرسال الرسالة إلى {count} مستخدم.")
+    bot.send_message(m.chat.id, f"✅ تم الإرسال إلى {count} مستخدم.")
 
 bot.infinity_polling()
