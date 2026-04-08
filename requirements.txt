@@ -1,3 +1,2 @@
-pyTelegramBotAPI
-Pillow
-flask
+pyTelegramBotAPI==4.16.0
+flask==3.0.0
