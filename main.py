@@ -8,7 +8,7 @@ from flask import Flask
 
 # ========== CONFIGURATION ==========
 BOT_TOKEN = '8744376397:AAFsFf-AsevpB-L5btSksOIUljvcai1HUCw'
-ADMIN_ID = 19999
+ADMIN_ID = 199999
 REQUIRED_CHANNEL = '@lIwJqGViEdg1YmU0'
 # ===================================
 
